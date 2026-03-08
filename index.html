@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Smart Keyboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:linear-gradient(160deg,#e8ecf0,#d4d8de);min-height:100vh;display:flex;justify-content:center;align-items:center;font-family:'DM Sans',sans-serif;}
+  textarea{resize:none;font-family:'DM Sans',sans-serif;}
+  textarea:focus{outline:none;}
+  ::-webkit-scrollbar{width:3px;}
+  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:3px;}
+  @keyframes bubbleIn{from{opacity:0;transform:scale(0.92) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  @keyframes panelUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes chipIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const { useState, useEffect, useRef } = React;
+
+const MODES = [
+  { id:"flirt",    emoji:"🔥", label:"Flirt",    color:"#FF2D55" },
+  { id:"starters", emoji:"💬", label:"Starters", color:"#30B050" },
+  { id:"formal",  emoji:"💼", label:"Formal",   color:"#007AFF" },
+  { id:"wit",     emoji:"😂", label:"Wit",      color:"#FF9500" },
+];
+
+const INIT_CHAT = [
+  { id:1, from:"them", text:"Hey! Finally caught up on that show you recommended 😭", time:"10:42 AM" },
+  { id:2, from:"me",   text:"Omg right?? The ending was insane",                      time:"10:43 AM" },
+  { id:3, from:"them", text:"I stayed up until 3am because of you lol",               time:"10:44 AM" },
+];
+
+const SYSTEM_PROMPTS = {
+  flirt:    "You are a witty confident dating coach. Generate 4 flirty replies that are charming, playful, not desperate. One bold, one teasing, one warm, one mysterious. Keep each under 20 words.",
+  starters: "You are a social expert. Generate 4 conversation starters that open interesting topics and make people want to respond. Mix deep, fun, creative. Keep each under 20 words.",
+  formal:   "You are a professional communication expert. Generate 4 polished professional replies. One brief & direct, one warm & professional, one detailed, one action-oriented. Keep each under 25 words.",
+  wit:      "You are a comedy writer. Generate 4 funny witty replies. One pun, one absurd, one self-aware, one roast-light. Keep each under 20 words.",
+};
+
+async function getSuggestions(chat, mode) {
+  const ctx = chat.slice(-4).map(m => `${m.from==="me"?"Me":"Them"}: ${m.text}`).join("\n");
+  const prompt = `Conversation:\n${ctx}\n\nGenerate 4 reply options. Respond ONLY as a JSON array of 4 strings. No labels, no markdown. Example: ["reply1","reply2","reply3","reply4"]`;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:600,
+        system: SYSTEM_PROMPTS[mode],
+        messages:[{role:"user", content:prompt}]
+      })
+    });
+    const data = await res.json();
+    const raw = data.content?.map(b=>b.text||"").join("") || "[]";
+    return JSON.parse(raw.replace(/```json|```/g,"").trim());
+  } catch(e) {
+    return ["That's really interesting! Tell me more 😊","Haha I was just thinking the same thing!","Okay you've got my full attention now 👀","No way, what happened next?"];
+  }
+}
+
+const KB_ROWS = [
+  ["q","w","e","r","t","y","u","i","o","p"],
+  ["a","s","d","f","g","h","j","k","l"],
+  ["⇧","z","x","c","v","b","n","m","⌫"],
+];
+
+function App() {
+  const [chat, setChat]           = useState(INIT_CHAT);
+  const [input, setInput]         = useState("");
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [activeMode, setMode]     = useState(null);
+  const [suggestions, setSugg]    = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const bottomRef = useRef(null);
+  const nextId    = useRef(chat.length + 1);
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [chat]);
+
+  const pickMode = async (id) => {
+    if (activeMode === id) { setMode(null); setSugg([]); return; }
+    setMode(id); setSugg([]); setLoading(true);
+    const s = await getSuggestions(chat, id);
+    setSugg(s); setLoading(false);
+  };
+
+  const tapSugg = (text) => setInput(text);
+
+  const send = () => {
+    if (!input.trim()) return;
+    const now = new Date();
+    const time = now.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    setChat(prev=>[...prev, {id:nextId.current++, from:"me", text:input.trim(), time}]);
+    setInput(""); setSugg([]); setMode(null);
+  };
+
+  const activeConfig = MODES.find(m=>m.id===activeMode);
+
+  return (
+    <div style={{display:"flex",justifyContent:"center",alignItems:"center",minHeight:"100vh",padding:"10px"}}>
+      {/* Phone */}
+      <div style={{
+        width: Math.min(390, window.innerWidth - 20),
+        height: Math.min(844, window.innerHeight - 20),
+        borderRadius:44, overflow:"hidden",
+        background:"#F2F2F7",
+        border:"10px solid #1C1C1E",
+        boxShadow:"0 40px 100px rgba(0,0,0,0.45)",
+        display:"flex", flexDirection:"column",
+      }}>
+
+        {/* Status bar */}
+        <div style={{height:44,background:"#fff",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",flexShrink:0}}>
+          <span style={{fontSize:15,fontWeight:600}}>9:41</span>
+          <div style={{width:110,height:28,background:"#1C1C1E",borderRadius:20}}/>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <span style={{fontSize:11,fontWeight:600}}>●●●</span>
+            <div style={{width:22,height:11,border:"1.5px solid #000",borderRadius:3,padding:1.5,display:"flex",alignItems:"center"}}>
+              <div style={{width:"75%",height:"100%",background:"#1C1C1E",borderRadius:1}}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Nav */}
+        <div style={{background:"#fff",borderBottom:"1px solid #F2F2F7",padding:"10px 18px 12px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <span style={{color:"#007AFF",fontSize:22,cursor:"pointer"}}>‹</span>
+          <div style={{width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#FF6B9D,#FF2D55)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>👩</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:15}}>Sophia</div>
+            <div style={{fontSize:11,color:"#8E8E93"}}>Active now</div>
+          </div>
+          <span style={{color:"#007AFF",fontSize:22}}>⋯</span>
+        </div>
+
+        {/* Chat */}
+        <div style={{flex:1,overflowY:"auto",padding:"14px 12px",display:"flex",flexDirection:"column",gap:3,background:"#fff"}}>
+          <div style={{textAlign:"center",marginBottom:8}}>
+            <span style={{fontSize:11,color:"#8E8E93"}}>Today</span>
+          </div>
+          {chat.map((msg,i)=>{
+            const isMe = msg.from==="me";
+            const last = i===chat.length-1 || chat[i+1]?.from!==msg.from;
+            return (
+              <div key={msg.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",animation:i>=chat.length-1?"bubbleIn 0.2s ease":"none"}}>
+                <div style={{
+                  maxWidth:"74%",
+                  background:isMe?"#007AFF":"#E9E9EB",
+                  color:isMe?"#fff":"#1C1C1E",
+                  borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                  padding:"9px 13px", fontSize:15, lineHeight:1.4, marginBottom:2,
+                }}>{msg.text}</div>
+                {last && <span style={{fontSize:10,color:"#8E8E93",marginBottom:5}}>{isMe?`Delivered · ${msg.time}`:msg.time}</span>}
+              </div>
+            );
+          })}
+          <div ref={bottomRef}/>
+        </div>
+
+        {/* Smart Panel + Input */}
+        <div style={{background:"#F2F2F7",borderTop:"1px solid #D1D1D6",flexShrink:0}}>
+
+          {/* Input row */}
+          <div style={{display:"flex",alignItems:"flex-end",gap:7,padding:"8px 10px 6px"}}>
+            {/* AI button */}
+            <button onClick={()=>setPanelOpen(p=>!p)} style={{
+              width:34,height:34,borderRadius:"50%",
+              background:panelOpen?"#007AFF":"#E5E5EA",
+              border:"none",cursor:"pointer",fontSize:15,
+              flexShrink:0,transition:"background 0.2s",
+              boxShadow:panelOpen?"0 2px 8px rgba(0,122,255,0.35)":"none",
+              color:panelOpen?"#fff":"#8E8E93",
+            }}>✦</button>
+
+            {/* Text box */}
+            <div style={{flex:1,background:"#fff",border:"1.5px solid #D1D1D6",borderRadius:20,padding:"7px 13px",minHeight:36,display:"flex",alignItems:"center"}}>
+              <textarea
+                value={input}
+                onChange={e=>setInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+                placeholder="iMessage"
+                rows={1}
+                style={{flex:1,background:"transparent",border:"none",fontSize:15,color:"#1C1C1E",lineHeight:1.4,maxHeight:70,overflowY:"auto"}}
+              />
+            </div>
+
+            {/* Send */}
+            <button onClick={send} style={{
+              width:34,height:34,borderRadius:"50%",
+              background:input.trim()?"#007AFF":"#E5E5EA",
+              border:"none",cursor:"pointer",flexShrink:0,transition:"background 0.2s",
+              display:"flex",alignItems:"center",justifyContent:"center",
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M12 19V5M5 12l7-7 7 7" stroke={input.trim()?"#fff":"#8E8E93"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* AI Suggestions Panel */}
+          {panelOpen && (
+            <div style={{borderTop:"1px solid #E5E5EA",padding:"10px 10px 8px",animation:"panelUp 0.2s ease"}}>
+              {/* Mode buttons */}
+              <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+                {MODES.map(m=>{
+                  const on = activeMode===m.id;
+                  return (
+                    <button key={m.id} onClick={()=>pickMode(m.id)} style={{
+                      background:on?m.color:"#fff",
+                      border:`1.5px solid ${on?m.color:"#D1D1D6"}`,
+                      borderRadius:20, padding:"6px 13px",
+                      fontSize:13, fontFamily:"'DM Sans',sans-serif",
+                      fontWeight:on?600:400,
+                      color:on?"#fff":"#1C1C1E",
+                      cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
+                      transition:"all 0.15s",
+                      boxShadow:on?`0 2px 8px ${m.color}50`:"none",
+                    }}>{m.emoji} {m.label}</button>
+                  );
+                })}
+              </div>
+
+              {/* Loading */}
+              {loading && (
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px"}}>
+                  <div style={{width:15,height:15,border:`2px solid ${activeConfig?.color||"#007AFF"}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+                  <span style={{fontSize:13,color:"#8E8E93"}}>Crafting replies…</span>
+                </div>
+              )}
+
+              {/* Suggestions */}
+              {!loading && suggestions.length>0 && (
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {suggestions.map((s,i)=>(
+                    <button key={i} onClick={()=>tapSugg(s)} style={{
+                      background:"#fff",
+                      border:`1.5px solid #E5E5EA`,
+                      borderRadius:18, padding:"9px 13px",
+                      fontFamily:"'DM Sans',sans-serif", fontSize:13.5,
+                      color:"#1C1C1E", textAlign:"left", cursor:"pointer",
+                      lineHeight:1.35, width:"100%",
+                      animation:`chipIn 0.25s ease ${i*0.06}s both`,
+                      transition:"all 0.12s",
+                      boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
+                    }}
+                      onMouseDown={e=>{e.currentTarget.style.background=activeConfig?.color||"#007AFF";e.currentTarget.style.color="#fff";}}
+                      onMouseUp={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.color="#1C1C1E";}}
+                    >{s}</button>
+                  ))}
+                  <button onClick={()=>pickMode(activeMode)} style={{
+                    background:"transparent",border:"none",
+                    color:activeConfig?.color||"#007AFF",
+                    fontFamily:"'DM Sans',sans-serif",fontSize:12.5,
+                    cursor:"pointer",padding:"3px 0",fontWeight:500,
+                  }}>↻ New suggestions</button>
+                </div>
+              )}
+
+              {!loading && !activeMode && (
+                <div style={{textAlign:"center",padding:"8px 0 4px",fontSize:13,color:"#8E8E93"}}>
+                  Pick a mode above to get smart replies ✦
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Keyboard mock */}
+          <div style={{padding:"6px 3px 2px",background:"#D1D5DB"}}>
+            {KB_ROWS.map((row,ri)=>(
+              <div key={ri} style={{display:"flex",justifyContent:"center",gap:5,marginBottom:5}}>
+                {row.map(k=>(
+                  <div key={k} style={{
+                    background:["⇧","⌫"].includes(k)?"#ADB5C0":"#fff",
+                    borderRadius:5,
+                    minWidth:["⇧","⌫"].includes(k)?42:32,
+                    height:40,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:k.length===1?15:17,
+                    color:"#1C1C1E",
+                    boxShadow:"0 1px 0 #8A8A8E",
+                    userSelect:"none",
+                  }}>{k}</div>
+                ))}
+              </div>
+            ))}
+            <div style={{display:"flex",gap:5,justifyContent:"center",paddingBottom:2}}>
+              {[{w:78,l:"123"},{w:185,l:"space"},{w:78,l:"return"}].map(k=>(
+                <div key={k.l} style={{background:k.l==="space"?"#fff":"#ADB5C0",borderRadius:5,width:k.w,height:40,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#1C1C1E",boxShadow:"0 1px 0 #8A8A8E",userSelect:"none"}}>{k.l}</div>
+              ))}
+            </div>
+          </div>
+
+          {/* Home indicator */}
+          <div style={{display:"flex",justifyContent:"center",padding:"7px 0 9px",background:"#D1D5DB"}}>
+            <div style={{width:110,height:4,background:"#1C1C1E",borderRadius:3,opacity:0.2}}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
