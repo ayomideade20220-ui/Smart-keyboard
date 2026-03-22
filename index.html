@@ -9,29 +9,35 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{background:linear-gradient(160deg,#e8ecf0,#d4d8de);min-height:100vh;display:flex;justify-content:center;align-items:center;font-family:'DM Sans',sans-serif;}
-  textarea{resize:none;font-family:'DM Sans',sans-serif;}
-  textarea:focus{outline:none;}
-  ::-webkit-scrollbar{width:3px;}
-  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:3px;}
-  @keyframes bubbleIn{from{opacity:0;transform:scale(0.92) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
-  @keyframes panelUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes chipIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes spin{to{transform:rotate(360deg)}}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:linear-gradient(160deg,#e8ecf0,#d1d5db);min-height:100vh;display:flex;justify-content:center;align-items:center;font-family:'DM Sans',sans-serif;}
+textarea,input{font-family:'DM Sans',sans-serif;}
+textarea:focus,input:focus{outline:none;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:3px;}
+@keyframes bubbleIn{from{opacity:0;transform:scale(0.92) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes panelUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes chipIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-
 const { useState, useEffect, useRef } = React;
 
 const MODES = [
-  { id:"flirt",    emoji:"🔥", label:"Flirt",    color:"#FF2D55" },
-  { id:"starters", emoji:"💬", label:"Starters", color:"#30B050" },
-  { id:"formal",  emoji:"💼", label:"Formal",   color:"#007AFF" },
-  { id:"wit",     emoji:"😂", label:"Wit",      color:"#FF9500" },
+  { id:"flirt",      emoji:"🔥", label:"Flirt",       color:"#FF2D55", system:"You are a witty confident dating coach. Generate 4 flirty replies: charming, playful, not desperate. One bold, one teasing, one warm, one mysterious. Each under 20 words." },
+  { id:"starters",   emoji:"💬", label:"Starters",    color:"#30B050", system:"You are a social expert. Generate 4 conversation starters that open interesting topics. Mix deep, fun, creative. Each under 20 words." },
+  { id:"formal",     emoji:"💼", label:"Formal",      color:"#007AFF", system:"You are a professional communication expert. Generate 4 polished professional replies. One brief, one warm, one detailed, one action-oriented. Each under 25 words." },
+  { id:"wit",        emoji:"😂", label:"Wit",         color:"#FF9500", system:"You are a comedy writer. Generate 4 funny witty replies. One pun, one absurd, one self-aware, one roast. Each under 20 words." },
+  { id:"savage",     emoji:"😤", label:"Savage",      color:"#FF3B30", system:"You are brutally unbothered. Generate 4 savage, cold, confident replies. Short, sharp, zero tolerance. Each under 15 words." },
+  { id:"apology",    emoji:"🙏", label:"Apology",     color:"#AF52DE", system:"You are an emotional intelligence expert. Generate 4 genuine smooth apology replies that fix the situation without being desperate. Each under 25 words." },
+  { id:"hype",       emoji:"⚡", label:"Hype",        color:"#FF9F0A", system:"You are a hype coach. Generate 4 high-energy confident exciting replies with massive positive energy. Each under 20 words." },
+  { id:"dirty",      emoji:"😈", label:"Dirty",       color:"#FF6B6B", system:"You are a bold flirt. Generate 4 spicy suggestive but not explicit replies. Clever double meanings, teasing, confident. Each under 20 words." },
+  { id:"nonchalant", emoji:"😐", label:"Nonchalant",  color:"#636366", system:"You are cool and unbothered. Generate 4 nonchalant mysterious low-effort replies that show you don't care too much. Each under 12 words." },
 ];
 
 const INIT_CHAT = [
@@ -40,33 +46,39 @@ const INIT_CHAT = [
   { id:3, from:"them", text:"I stayed up until 3am because of you lol",               time:"10:44 AM" },
 ];
 
-const SYSTEM_PROMPTS = {
-  flirt:    "You are a witty confident dating coach. Generate 4 flirty replies that are charming, playful, not desperate. One bold, one teasing, one warm, one mysterious. Keep each under 20 words.",
-  starters: "You are a social expert. Generate 4 conversation starters that open interesting topics and make people want to respond. Mix deep, fun, creative. Keep each under 20 words.",
-  formal:   "You are a professional communication expert. Generate 4 polished professional replies. One brief & direct, one warm & professional, one detailed, one action-oriented. Keep each under 25 words.",
-  wit:      "You are a comedy writer. Generate 4 funny witty replies. One pun, one absurd, one self-aware, one roast-light. Keep each under 20 words.",
-};
+async function callClaude(system, messages, max_tokens=700) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens, system, messages})
+  });
+  const data = await res.json();
+  return data.content?.map(b=>b.text||"").join("")||"";
+}
 
-async function getSuggestions(chat, mode) {
-  const ctx = chat.slice(-4).map(m => `${m.from==="me"?"Me":"Them"}: ${m.text}`).join("\n");
-  const prompt = `Conversation:\n${ctx}\n\nGenerate 4 reply options. Respond ONLY as a JSON array of 4 strings. No labels, no markdown. Example: ["reply1","reply2","reply3","reply4"]`;
+async function getSuggestions(context, mode) {
+  const m = MODES.find(x=>x.id===mode);
+  const prompt = `${context}\n\nGenerate 4 reply options. Respond ONLY as a JSON array of 4 strings. No labels, no markdown. Example: ["reply1","reply2","reply3","reply4"]`;
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        model:"claude-sonnet-4-20250514",
-        max_tokens:600,
-        system: SYSTEM_PROMPTS[mode],
-        messages:[{role:"user", content:prompt}]
-      })
-    });
-    const data = await res.json();
-    const raw = data.content?.map(b=>b.text||"").join("") || "[]";
+    const raw = await callClaude(m.system, [{role:"user",content:prompt}]);
     return JSON.parse(raw.replace(/```json|```/g,"").trim());
   } catch(e) {
-    return ["That's really interesting! Tell me more 😊","Haha I was just thinking the same thing!","Okay you've got my full attention now 👀","No way, what happened next?"];
+    return ["Interesting…","Tell me more 👀","I feel that","No way lol"];
   }
+}
+
+async function readScreenshot(base64, mimeType) {
+  try {
+    const raw = await callClaude(
+      "You are reading a chat screenshot. Extract the last 6 messages as plain text. Format each as 'Person A: message' or 'Person B: message'. Return ONLY the conversation text.",
+      [{role:"user",content:[
+        {type:"image",source:{type:"base64",media_type:mimeType,data:base64}},
+        {type:"text",text:"Read this chat screenshot and extract the conversation messages."}
+      ]}],
+      400
+    );
+    return raw;
+  } catch(e) { return null; }
 }
 
 const KB_ROWS = [
@@ -75,6 +87,118 @@ const KB_ROWS = [
   ["⇧","z","x","c","v","b","n","m","⌫"],
 ];
 
+function UploadPanel({ onReady, onClose }) {
+  const [step, setStep]       = useState("upload");
+  const [imgSrc, setImgSrc]   = useState(null);
+  const [reading, setReading] = useState(false);
+  const [context, setContext] = useState("");
+  const [selMode, setSelMode] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target.result;
+      setImgSrc(dataUrl);
+      setReading(true);
+      setStep("mode");
+      const base64 = dataUrl.split(",")[1];
+      const text = await readScreenshot(base64, file.type||"image/jpeg");
+      setContext(text||"");
+      setReading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const generate = async () => {
+    if (!selMode||loading) return;
+    setLoading(true);
+    const suggs = await getSuggestions(`Chat from screenshot:\n${context}`, selMode);
+    setLoading(false);
+    onReady(suggs, selMode);
+    onClose();
+  };
+
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{
+      position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",
+      zIndex:200,display:"flex",alignItems:"flex-end",animation:"fadeIn 0.2s ease",
+    }}>
+      <div style={{
+        width:"100%",background:"#F2F2F7",
+        borderRadius:"22px 22px 0 0",padding:"14px 14px 28px",
+        animation:"panelUp 0.25s ease",maxHeight:"85%",overflowY:"auto",
+      }}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+          <div style={{width:34,height:4,background:"#C7C7CC",borderRadius:2}}/>
+        </div>
+
+        {step==="upload" && <>
+          <div style={{fontSize:17,fontWeight:600,color:"#1C1C1E",marginBottom:3}}>Scan Chat Screenshot</div>
+          <div style={{fontSize:13,color:"#8E8E93",marginBottom:18}}>AI reads your real chat → picks the perfect reply</div>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+          <button onClick={()=>fileRef.current.click()} style={{
+            width:"100%",padding:"20px",background:"#fff",
+            border:"2px dashed #D1D1D6",borderRadius:16,cursor:"pointer",
+            display:"flex",flexDirection:"column",alignItems:"center",gap:8,
+          }}>
+            <div style={{fontSize:40}}>📸</div>
+            <div style={{fontSize:15,fontWeight:500,color:"#1C1C1E"}}>Tap to upload screenshot</div>
+            <div style={{fontSize:12,color:"#8E8E93"}}>WhatsApp · Instagram · iMessage · Telegram</div>
+          </button>
+        </>}
+
+        {step==="mode" && <>
+          {imgSrc && (
+            <div style={{marginBottom:14,borderRadius:12,overflow:"hidden",height:130,position:"relative"}}>
+              <img src={imgSrc} style={{width:"100%",height:"100%",objectFit:"cover",filter:"blur(4px) brightness(0.6)"}}/>
+              <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8}}>
+                {reading
+                  ? <><div style={{width:22,height:22,border:"2.5px solid #fff",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/><span style={{color:"#fff",fontSize:13,fontWeight:500}}>Reading your chat…</span></>
+                  : <><div style={{fontSize:24}}>✅</div><span style={{color:"#fff",fontSize:13,fontWeight:600}}>Chat read successfully!</span></>
+                }
+              </div>
+            </div>
+          )}
+
+          {!reading && <>
+            <div style={{fontSize:14,fontWeight:600,color:"#1C1C1E",marginBottom:10}}>Pick your reply mode 👇</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginBottom:14}}>
+              {MODES.map(m=>(
+                <button key={m.id} onClick={()=>setSelMode(m.id)} style={{
+                  background:selMode===m.id?m.color:"#fff",
+                  border:`1.5px solid ${selMode===m.id?m.color:"#E5E5EA"}`,
+                  borderRadius:12,padding:"10px 4px",cursor:"pointer",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+                  transition:"all 0.15s",
+                  boxShadow:selMode===m.id?`0 2px 10px ${m.color}60`:"none",
+                }}>
+                  <span style={{fontSize:20}}>{m.emoji}</span>
+                  <span style={{fontSize:11,fontWeight:selMode===m.id?600:400,color:selMode===m.id?"#fff":"#1C1C1E"}}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={generate} disabled={!selMode||loading} style={{
+              width:"100%",padding:"14px",borderRadius:14,border:"none",
+              background:selMode?MODES.find(m=>m.id===selMode)?.color:"#E5E5EA",
+              color:selMode?"#fff":"#8E8E93",fontSize:15,fontWeight:600,cursor:selMode?"pointer":"default",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all 0.2s",
+            }}>
+              {loading
+                ? <><div style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.4)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/> Generating…</>
+                : "✦  Get My Replies"
+              }
+            </button>
+          </>}
+        </>}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [chat, setChat]           = useState(INIT_CHAT);
   const [input, setInput]         = useState("");
@@ -82,234 +206,127 @@ function App() {
   const [activeMode, setMode]     = useState(null);
   const [suggestions, setSugg]    = useState([]);
   const [loading, setLoading]     = useState(false);
+  const [showUpload, setUpload]   = useState(false);
   const bottomRef = useRef(null);
-  const nextId    = useRef(chat.length + 1);
+  const nextId    = useRef(chat.length+1);
 
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [chat]);
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[chat,suggestions]);
 
   const pickMode = async (id) => {
-    if (activeMode === id) { setMode(null); setSugg([]); return; }
+    if (activeMode===id) { setMode(null); setSugg([]); return; }
     setMode(id); setSugg([]); setLoading(true);
-    const s = await getSuggestions(chat, id);
+    const ctx = chat.slice(-4).map(m=>`${m.from==="me"?"Me":"Them"}: ${m.text}`).join("\n");
+    const s = await getSuggestions(`Conversation:\n${ctx}`, id);
     setSugg(s); setLoading(false);
   };
 
-  const tapSugg = (text) => setInput(text);
+  const handleUploadReady = (suggs, mode) => {
+    setMode(mode); setSugg(suggs); setPanelOpen(true);
+  };
 
   const send = () => {
     if (!input.trim()) return;
-    const now = new Date();
-    const time = now.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
-    setChat(prev=>[...prev, {id:nextId.current++, from:"me", text:input.trim(), time}]);
+    const t = new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    setChat(p=>[...p,{id:nextId.current++,from:"me",text:input.trim(),time:t}]);
     setInput(""); setSugg([]); setMode(null);
   };
 
-  const activeConfig = MODES.find(m=>m.id===activeMode);
+  const cfg = MODES.find(m=>m.id===activeMode);
 
   return (
-    <div style={{display:"flex",justifyContent:"center",alignItems:"center",minHeight:"100vh",padding:"10px"}}>
-      {/* Phone */}
+    <div style={{display:"flex",justifyContent:"center",alignItems:"center",minHeight:"100vh",padding:"8px"}}>
       <div style={{
-        width: Math.min(390, window.innerWidth - 20),
-        height: Math.min(844, window.innerHeight - 20),
-        borderRadius:44, overflow:"hidden",
-        background:"#F2F2F7",
+        width:Math.min(385,window.innerWidth-16),
+        height:Math.min(840,window.innerHeight-16),
+        borderRadius:44,overflow:"hidden",background:"#F2F2F7",
         border:"10px solid #1C1C1E",
-        boxShadow:"0 40px 100px rgba(0,0,0,0.45)",
-        display:"flex", flexDirection:"column",
+        boxShadow:"0 40px 100px rgba(0,0,0,0.5)",
+        display:"flex",flexDirection:"column",position:"relative",
       }}>
-
-        {/* Status bar */}
+        {/* Status */}
         <div style={{height:44,background:"#fff",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 22px",flexShrink:0}}>
           <span style={{fontSize:15,fontWeight:600}}>9:41</span>
           <div style={{width:110,height:28,background:"#1C1C1E",borderRadius:20}}/>
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <span style={{fontSize:11,fontWeight:600}}>●●●</span>
-            <div style={{width:22,height:11,border:"1.5px solid #000",borderRadius:3,padding:1.5,display:"flex",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <svg width="16" height="12" viewBox="0 0 16 12">{[0,1,2,3].map(i=><rect key={i} x={i*4} y={12-(i+1)*3} width="3" height={(i+1)*3} rx="1" fill={i<3?"#1C1C1E":"#C7C7CC"}/>)}</svg>
+            <div style={{width:22,height:11,border:"1.5px solid #1C1C1E",borderRadius:3,padding:1.5,display:"flex",alignItems:"center"}}>
               <div style={{width:"75%",height:"100%",background:"#1C1C1E",borderRadius:1}}/>
             </div>
           </div>
         </div>
 
         {/* Nav */}
-        <div style={{background:"#fff",borderBottom:"1px solid #F2F2F7",padding:"10px 18px 12px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <span style={{color:"#007AFF",fontSize:22,cursor:"pointer"}}>‹</span>
+        <div style={{background:"#fff",borderBottom:"1px solid #F2F2F7",padding:"8px 14px 10px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <span style={{color:"#007AFF",fontSize:22}}>‹</span>
           <div style={{width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#FF6B9D,#FF2D55)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>👩</div>
           <div style={{flex:1}}>
             <div style={{fontWeight:600,fontSize:15}}>Sophia</div>
             <div style={{fontSize:11,color:"#8E8E93"}}>Active now</div>
           </div>
-          <span style={{color:"#007AFF",fontSize:22}}>⋯</span>
+          <button onClick={()=>setUpload(true)} style={{
+            background:"#F2F2F7",border:"none",borderRadius:18,
+            padding:"6px 10px",cursor:"pointer",
+            display:"flex",alignItems:"center",gap:4,
+          }}>
+            <span style={{fontSize:13}}>📸</span>
+            <span style={{fontSize:12,fontWeight:500,color:"#007AFF"}}>Scan</span>
+          </button>
         </div>
 
         {/* Chat */}
-        <div style={{flex:1,overflowY:"auto",padding:"14px 12px",display:"flex",flexDirection:"column",gap:3,background:"#fff"}}>
-          <div style={{textAlign:"center",marginBottom:8}}>
-            <span style={{fontSize:11,color:"#8E8E93"}}>Today</span>
-          </div>
+        <div style={{flex:1,overflowY:"auto",padding:"12px",display:"flex",flexDirection:"column",gap:3,background:"#fff"}}>
+          <div style={{textAlign:"center",marginBottom:8}}><span style={{fontSize:11,color:"#8E8E93"}}>Today</span></div>
           {chat.map((msg,i)=>{
-            const isMe = msg.from==="me";
-            const last = i===chat.length-1 || chat[i+1]?.from!==msg.from;
+            const isMe=msg.from==="me";
+            const last=i===chat.length-1||chat[i+1]?.from!==msg.from;
             return (
               <div key={msg.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",animation:i>=chat.length-1?"bubbleIn 0.2s ease":"none"}}>
-                <div style={{
-                  maxWidth:"74%",
-                  background:isMe?"#007AFF":"#E9E9EB",
-                  color:isMe?"#fff":"#1C1C1E",
-                  borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",
-                  padding:"9px 13px", fontSize:15, lineHeight:1.4, marginBottom:2,
-                }}>{msg.text}</div>
-                {last && <span style={{fontSize:10,color:"#8E8E93",marginBottom:5}}>{isMe?`Delivered · ${msg.time}`:msg.time}</span>}
+                <div style={{maxWidth:"74%",background:isMe?"#007AFF":"#E9E9EB",color:isMe?"#fff":"#1C1C1E",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"9px 13px",fontSize:15,lineHeight:1.4,marginBottom:2}}>{msg.text}</div>
+                {last&&<span style={{fontSize:10,color:"#8E8E93",marginBottom:5}}>{isMe?`Delivered · ${msg.time}`:msg.time}</span>}
               </div>
             );
           })}
           <div ref={bottomRef}/>
         </div>
 
-        {/* Smart Panel + Input */}
+        {/* Bottom bar */}
         <div style={{background:"#F2F2F7",borderTop:"1px solid #D1D1D6",flexShrink:0}}>
-
-          {/* Input row */}
-          <div style={{display:"flex",alignItems:"flex-end",gap:7,padding:"8px 10px 6px"}}>
-            {/* AI button */}
-            <button onClick={()=>setPanelOpen(p=>!p)} style={{
-              width:34,height:34,borderRadius:"50%",
-              background:panelOpen?"#007AFF":"#E5E5EA",
-              border:"none",cursor:"pointer",fontSize:15,
-              flexShrink:0,transition:"background 0.2s",
-              boxShadow:panelOpen?"0 2px 8px rgba(0,122,255,0.35)":"none",
-              color:panelOpen?"#fff":"#8E8E93",
-            }}>✦</button>
-
-            {/* Text box */}
+          {/* Input */}
+          <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"8px 10px 6px"}}>
+            <button onClick={()=>setPanelOpen(p=>!p)} style={{width:34,height:34,borderRadius:"50%",background:panelOpen?"#007AFF":"#E5E5EA",border:"none",cursor:"pointer",fontSize:15,flexShrink:0,color:panelOpen?"#fff":"#8E8E93",transition:"all 0.2s",boxShadow:panelOpen?"0 2px 8px rgba(0,122,255,0.4)":"none"}}>✦</button>
             <div style={{flex:1,background:"#fff",border:"1.5px solid #D1D1D6",borderRadius:20,padding:"7px 13px",minHeight:36,display:"flex",alignItems:"center"}}>
-              <textarea
-                value={input}
-                onChange={e=>setInput(e.target.value)}
-                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
-                placeholder="iMessage"
-                rows={1}
-                style={{flex:1,background:"transparent",border:"none",fontSize:15,color:"#1C1C1E",lineHeight:1.4,maxHeight:70,overflowY:"auto"}}
-              />
+              <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} placeholder="iMessage" rows={1} style={{flex:1,background:"transparent",border:"none",fontSize:15,color:"#1C1C1E",lineHeight:1.4,maxHeight:70,overflowY:"auto"}}/>
             </div>
-
-            {/* Send */}
-            <button onClick={send} style={{
-              width:34,height:34,borderRadius:"50%",
-              background:input.trim()?"#007AFF":"#E5E5EA",
-              border:"none",cursor:"pointer",flexShrink:0,transition:"background 0.2s",
-              display:"flex",alignItems:"center",justifyContent:"center",
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                <path d="M12 19V5M5 12l7-7 7 7" stroke={input.trim()?"#fff":"#8E8E93"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+            <button onClick={send} style={{width:34,height:34,borderRadius:"50%",background:input.trim()?"#007AFF":"#E5E5EA",border:"none",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"background 0.2s"}}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M5 12l7-7 7 7" stroke={input.trim()?"#fff":"#8E8E93"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
           </div>
 
-          {/* AI Suggestions Panel */}
+          {/* AI Panel */}
           {panelOpen && (
             <div style={{borderTop:"1px solid #E5E5EA",padding:"10px 10px 8px",animation:"panelUp 0.2s ease"}}>
-              {/* Mode buttons */}
-              <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+              {/* Scan button */}
+              <button onClick={()=>setUpload(true)} style={{width:"100%",background:"linear-gradient(135deg,#1C1C1E,#3A3A3C)",border:"none",borderRadius:12,padding:"10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:10}}>
+                <span style={{fontSize:15}}>📸</span>
+                <span style={{color:"#fff",fontSize:13,fontWeight:600}}>Scan real chat screenshot</span>
+                <span style={{background:"#FF2D55",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:8}}>NEW</span>
+              </button>
+
+              {/* Mode scroll */}
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:8}}>
                 {MODES.map(m=>{
-                  const on = activeMode===m.id;
-                  return (
-                    <button key={m.id} onClick={()=>pickMode(m.id)} style={{
-                      background:on?m.color:"#fff",
-                      border:`1.5px solid ${on?m.color:"#D1D1D6"}`,
-                      borderRadius:20, padding:"6px 13px",
-                      fontSize:13, fontFamily:"'DM Sans',sans-serif",
-                      fontWeight:on?600:400,
-                      color:on?"#fff":"#1C1C1E",
-                      cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
-                      transition:"all 0.15s",
-                      boxShadow:on?`0 2px 8px ${m.color}50`:"none",
-                    }}>{m.emoji} {m.label}</button>
-                  );
+                  const on=activeMode===m.id;
+                  return <button key={m.id} onClick={()=>pickMode(m.id)} style={{background:on?m.color:"#fff",border:`1.5px solid ${on?m.color:"#D1D1D6"}`,borderRadius:20,padding:"6px 11px",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:on?600:400,color:on?"#fff":"#1C1C1E",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,transition:"all 0.15s",boxShadow:on?`0 2px 8px ${m.color}50`:"none"}}>{m.emoji} {m.label}</button>;
                 })}
               </div>
 
-              {/* Loading */}
-              {loading && (
-                <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px"}}>
-                  <div style={{width:15,height:15,border:`2px solid ${activeConfig?.color||"#007AFF"}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
-                  <span style={{fontSize:13,color:"#8E8E93"}}>Crafting replies…</span>
-                </div>
-              )}
+              {loading&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 4px"}}><div style={{width:15,height:15,border:`2px solid ${cfg?.color||"#007AFF"}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/><span style={{fontSize:13,color:"#8E8E93"}}>Crafting replies…</span></div>}
 
-              {/* Suggestions */}
-              {!loading && suggestions.length>0 && (
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {!loading&&suggestions.length>0&&(
+                <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:cfg?.color||"#007AFF",animation:"pulse 2s infinite"}}/>
+                    <span style={{fontSize:10,color:cfg?.color||"#007AFF",fontWeight:600,letterSpacing:0.5}}>{cfg?.emoji} {cfg?.label?.toUpperCase()} MODE</span>
+                  </div>
                   {suggestions.map((s,i)=>(
-                    <button key={i} onClick={()=>tapSugg(s)} style={{
-                      background:"#fff",
-                      border:`1.5px solid #E5E5EA`,
-                      borderRadius:18, padding:"9px 13px",
-                      fontFamily:"'DM Sans',sans-serif", fontSize:13.5,
-                      color:"#1C1C1E", textAlign:"left", cursor:"pointer",
-                      lineHeight:1.35, width:"100%",
-                      animation:`chipIn 0.25s ease ${i*0.06}s both`,
-                      transition:"all 0.12s",
-                      boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
-                    }}
-                      onMouseDown={e=>{e.currentTarget.style.background=activeConfig?.color||"#007AFF";e.currentTarget.style.color="#fff";}}
-                      onMouseUp={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.color="#1C1C1E";}}
-                    >{s}</button>
-                  ))}
-                  <button onClick={()=>pickMode(activeMode)} style={{
-                    background:"transparent",border:"none",
-                    color:activeConfig?.color||"#007AFF",
-                    fontFamily:"'DM Sans',sans-serif",fontSize:12.5,
-                    cursor:"pointer",padding:"3px 0",fontWeight:500,
-                  }}>↻ New suggestions</button>
-                </div>
-              )}
-
-              {!loading && !activeMode && (
-                <div style={{textAlign:"center",padding:"8px 0 4px",fontSize:13,color:"#8E8E93"}}>
-                  Pick a mode above to get smart replies ✦
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Keyboard mock */}
-          <div style={{padding:"6px 3px 2px",background:"#D1D5DB"}}>
-            {KB_ROWS.map((row,ri)=>(
-              <div key={ri} style={{display:"flex",justifyContent:"center",gap:5,marginBottom:5}}>
-                {row.map(k=>(
-                  <div key={k} style={{
-                    background:["⇧","⌫"].includes(k)?"#ADB5C0":"#fff",
-                    borderRadius:5,
-                    minWidth:["⇧","⌫"].includes(k)?42:32,
-                    height:40,
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    fontSize:k.length===1?15:17,
-                    color:"#1C1C1E",
-                    boxShadow:"0 1px 0 #8A8A8E",
-                    userSelect:"none",
-                  }}>{k}</div>
-                ))}
-              </div>
-            ))}
-            <div style={{display:"flex",gap:5,justifyContent:"center",paddingBottom:2}}>
-              {[{w:78,l:"123"},{w:185,l:"space"},{w:78,l:"return"}].map(k=>(
-                <div key={k.l} style={{background:k.l==="space"?"#fff":"#ADB5C0",borderRadius:5,width:k.w,height:40,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#1C1C1E",boxShadow:"0 1px 0 #8A8A8E",userSelect:"none"}}>{k.l}</div>
-              ))}
-            </div>
-          </div>
-
-          {/* Home indicator */}
-          <div style={{display:"flex",justifyContent:"center",padding:"7px 0 9px",background:"#D1D5DB"}}>
-            <div style={{width:110,height:4,background:"#1C1C1E",borderRadius:3,opacity:0.2}}/>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-</script>
-</body>
-</html>
+                    <button key={i} onClick={()=>setInput(s)} style={{background:"#fff",border:"1.5px solid #E5E5EA",borderRadius:16,padding:"9px 13px",fontFamily:"'DM Sans',sans-serif",fontSize:13.5,color:"#1C1C1E",textAlign:"left",cursor:"pointer",lineHeight:1.4,width:"10
